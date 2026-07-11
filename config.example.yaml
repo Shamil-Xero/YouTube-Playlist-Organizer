@@ -1,0 +1,44 @@
+# Copy this file to config.yaml and fill in your own values.
+
+youtube:
+  client_secret_file: "client_secret.json"   # downloaded from Google Cloud Console
+  token_file: "token.json"                   # auto-created after first login, don't edit
+  source_playlist_id: "PLxxxxxxxxxxxxxxxxxxxxxxxxx"   # playlist you want sorted
+  remove_from_source: true                   # true = move videos out, false = just copy them in
+
+shorts:
+  enabled: true                                # auto-detect Shorts by duration before LLM classification
+  max_duration_seconds: 60                     # videos this length or shorter count as Shorts
+  playlist_id: ""                              # leave blank to auto-create a "Shorts" playlist
+
+lmstudio:
+  host: "http://localhost:1234"              # LM Studio's local server (Developer tab -> Start Server)
+  model: ""                                  # leave blank to auto-use whichever model is currently loaded,
+                                              # or set an exact id from `lms ls` / GET /v1/models, e.g. "qwen2.5-7b-instruct"
+  api_key: "lm-studio"                       # ignored by LM Studio, but the OpenAI-style client needs a value
+  timeout_seconds: 60
+
+# One entry per destination playlist. "playlist_id" can be left blank ("") and
+# the script will create the playlist (private, on your channel) the first
+# time it needs it, then you can hardcode the id here for future runs.
+# "description" is shown to the LLM to help it disambiguate - be specific.
+categories:
+  - name: "Programming Tutorials"
+    playlist_id: ""
+    description: "Coding tutorials, programming languages, frameworks, software dev walkthroughs"
+  - name: "Electronics & Hardware"
+    playlist_id: ""
+    description: "Electronics projects, PCB design, microcontrollers, hardware builds"
+  - name: "Astrophysics & Space"
+    playlist_id: ""
+    description: "Astrophysics, cosmology, space exploration, astronomy"
+  - name: "Music"
+    playlist_id: ""
+    description: "Music videos, live performances, official audio, concerts"
+  - name: "Gaming"
+    playlist_id: ""
+    description: "Gameplay, walkthroughs, gaming news and reviews"
+
+review:
+  min_confidence: "medium"     # "low" confidence answers always go to manual review
+  batch_delay_seconds: 0.5     # small delay between videos, easy on local LLM + API
