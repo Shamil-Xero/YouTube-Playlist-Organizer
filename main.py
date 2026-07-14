@@ -33,6 +33,20 @@ def parse_iso8601_duration(duration: str) -> int:
     return h * 3600 + m * 60 + s
 
 
+def format_seconds(seconds: int) -> str:
+    """Format total seconds to a human-readable duration (e.g. '3:45' or '45s')."""
+    if seconds <= 0:
+        return "0s"
+    if seconds < 60:
+        return f"{seconds}s"
+    h = seconds // 3600
+    m = (seconds % 3600) // 60
+    s = seconds % 60
+    if h > 0:
+        return f"{h}:{m:02d}:{s:02d}"
+    return f"{m}:{s:02d}"
+
+
 def main():
     parser = argparse.ArgumentParser(description="Auto-sort a YouTube playlist using a local LLM.")
     parser.add_argument("--config", default="config.yaml")
@@ -115,22 +129,40 @@ def main():
     delay = review_cfg.get("batch_delay_seconds", 0.5)
     min_confidence = review_cfg.get("min_confidence", "medium")
 
+    # --- Pre-calculate pending count ---
+    pending_items = [it for it in items if not state.is_done(it["video_id"])]
+    total_pending = len(pending_items)
+
+    if total_pending > 0:
+        print(f"\nProcessing {total_pending} new video(s)...")
+    else:
+        print("\nNo new videos to process (all have already been categorized).")
+
+    current_index = 0
     for it in items:
         vid = it["video_id"]
         if state.is_done(vid):
             continue
 
+        current_index += 1
         vdetails = details.get(vid)
         if not vdetails:
-            print(f"  [skip] Could not fetch details for {vid} ({it['title']})")
+            print(f"[{current_index}/{total_pending}] [skip] Could not fetch details for {vid} ({it['title']})")
             continue
+
+        # Extract metadata
+        channel = vdetails.get("channel", "Unknown Channel")
+        duration_raw = vdetails.get("duration", "")
+        duration_sec = parse_iso8601_duration(duration_raw)
+        duration_str = format_seconds(duration_sec) if duration_sec > 0 else "Unknown duration"
+
+        print(f"\n[{current_index}/{total_pending}] Processing: {it['title']!r}")
+        print(f"  - Channel: {channel} | Duration: {duration_str}")
 
         # --- Shorts detection (by duration, before LLM) ---
         if shorts_enabled:
-            duration_sec = parse_iso8601_duration(vdetails.get("duration", ""))
             if 0 < duration_sec <= shorts_max_seconds:
-                print(f"  [short] {it['title'][:70]!r} ({duration_sec}s)")
-
+                print(f"  - Action: Detected YouTube Short ({duration_sec}s).")
                 if not args.dry_run:
                     if not shorts_playlist_id:
                         shorts_playlist_id = yt.get_or_create_playlist(
@@ -141,6 +173,9 @@ def main():
                     if yt_cfg.get("remove_from_source", True):
                         yt.remove_playlist_item(it["playlist_item_id"])
                     state.mark_done(vid, "Shorts", note=f"{duration_sec}s")
+                    print(f"  - Result: Moved to 'Shorts' playlist.")
+                else:
+                    print(f"  - Result: [Dry-run] Would move to 'Shorts' playlist.")
 
                 results.append((it["title"], "Shorts"))
                 shorts_moved += 1
@@ -150,16 +185,20 @@ def main():
         category, confidence, reason, suggested = classify(vdetails, categories, llm, min_confidence)
 
         if category is None:
-            suggestion_msg = f", LLM suggests: \"{suggested}\"" if suggested else ""
-            print(f"  [review] {it['title'][:70]!r} -> uncertain ({reason}{suggestion_msg})")
+            suggestion_msg = f", Suggestion: \"{suggested}\"" if suggested else ""
+            print(f"  - LLM Classification: Uncertain (Confidence: {confidence})")
+            print(f"    Reason: {reason}{suggestion_msg}")
+            print(f"  - Action: Kept in source playlist, queued for manual review.")
             to_review.append({**it, "suggested_category": suggested})
             results.append((it["title"], "[needs review]"))
             time.sleep(delay)
             continue
 
-        print(f"  [{confidence}] {it['title'][:70]!r} -> {category} ({reason})")
+        print(f"  - LLM Classification: '{category}' (Confidence: {confidence})")
+        print(f"    Reason: {reason}")
 
         if args.dry_run:
+            print(f"  - Action: [Dry-run] Would move to '{category}' playlist.")
             results.append((it["title"], category))
             time.sleep(delay)
             continue
@@ -174,6 +213,7 @@ def main():
         yt.add_video_to_playlist(dest_id, vid)
         if yt_cfg.get("remove_from_source", True):
             yt.remove_playlist_item(it["playlist_item_id"])
+        print(f"  - Action: Moved to '{category}' playlist.")
 
         state.mark_done(vid, category)
         results.append((it["title"], category))
